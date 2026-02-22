@@ -712,6 +712,25 @@ export default function App() {
     localStorage.setItem(CHECKLIST_USERS_KEY, JSON.stringify(checklistUsers));
   }, [checklistUsers]);
 
+  // 深層移除 undefined 值（Firebase 不接受 undefined）
+  const removeUndefined = (obj: any): any => {
+    if (obj === null || obj === undefined) return null;
+    if (Array.isArray(obj)) {
+      return obj.map(item => removeUndefined(item)).filter(item => item !== undefined);
+    }
+    if (typeof obj === 'object') {
+      const cleaned: any = {};
+      for (const key in obj) {
+        const value = removeUndefined(obj[key]);
+        if (value !== undefined) {
+          cleaned[key] = value;
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  };
+
   // 保存當前旅程數據到 Firebase
   const saveCurrentTrip = () => {
     // 確保所有數據都有預設值，避免 undefined
@@ -722,7 +741,7 @@ export default function App() {
       persons: persons || initialPersons,
       checklistUsers: checklistUsers || [],
       flights: flights || [],
-      tripSettings: tripSettings || loadTripSettings(),
+      tripSettings: tripSettings || initialTripSettings,
       exchangeRate: exchangeRate || 0.052,
       scheduleHistory: scheduleHistory || [],
     };
@@ -748,7 +767,9 @@ export default function App() {
       try {
         updatedTrips.forEach(trip => {
           const tripRef = ref(database, `trips/${trip.id}`);
-          set(tripRef, trip);
+          // 深層移除 undefined 值
+          const cleanedTrip = removeUndefined(trip);
+          set(tripRef, cleanedTrip);
         });
         
         // 更新當前旅程 ID
