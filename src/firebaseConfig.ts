@@ -14,7 +14,15 @@ const firebaseConfig = {
 };
 
 // 初始化 Firebase
-const app = initializeApp(firebaseConfig);
+let database;
+try {
+  const app = initializeApp(firebaseConfig);
+  database = getDatabase(app);
+  console.log('Firebase initialized successfully');
+} catch (error) {
+  console.error('Firebase initialization error:', error);
+  // 如果 Firebase 初始化失敗，創建一個空的 database 物件避免崩潰
+  database = null;
+}
 
-// 取得 Realtime Database 實例
-export const database = getDatabase(app);
+export { database };
