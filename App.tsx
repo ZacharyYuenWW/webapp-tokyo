@@ -722,31 +722,35 @@ export default function App() {
     localStorage.setItem(CHECKLIST_USERS_KEY, JSON.stringify(checklistUsers));
   }, [checklistUsers]);
 
-  // 深層移除 undefined 值（Firebase 不接受 undefined）
+  // 深層將 undefined 轉換為 null 或移除（Firebase 不接受 undefined）
   const removeUndefined = (obj: any): any => {
-    if (obj === undefined) return null;
+    if (obj === undefined) return null;  // undefined 轉為 null
     if (obj === null) return null;
+    
     if (Array.isArray(obj)) {
+      // 過濾掉 undefined/null 的陣列項目，並遞歸清理
       return obj
         .filter(item => item !== undefined && item !== null)
         .map(item => removeUndefined(item));
     }
-    if (typeof obj === 'object' && obj !== null) {
+    
+    if (typeof obj === 'object') {
       const cleaned: any = {};
       for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
           const value = obj[key];
-          if (value !== undefined) {
-            const cleanedValue = removeUndefined(value);
-            // 確保不會設置 undefined 值
-            if (cleanedValue !== undefined) {
-              cleaned[key] = cleanedValue;
-            }
+          // 跳過 undefined 值（不寫入該欄位）
+          if (value === undefined) {
+            continue;
           }
+          // 遞歸清理
+          const cleanedValue = removeUndefined(value);
+          cleaned[key] = cleanedValue;
         }
       }
       return cleaned;
     }
+    
     return obj;
   };
 
@@ -792,6 +796,7 @@ export default function App() {
     const safeFlights = ensureArray(flights, []);
     const safeScheduleHistory = ensureArray(scheduleHistory, []);
 
+    // 構建安全的數據對象
     const safeData = {
       schedule: safeSchedule,
       checklist: safeChecklist,
@@ -803,6 +808,9 @@ export default function App() {
       exchangeRate: typeof exchangeRate === 'number' ? exchangeRate : 0.052,
       scheduleHistory: safeScheduleHistory,
     };
+    
+    // 先用 removeUndefined 清理整個 safeData
+    const cleanedSafeData = removeUndefined(safeData);
 
     const updatedTrips = allTrips.map(trip => {
       if (trip.id === currentTripId) {
@@ -810,7 +818,7 @@ export default function App() {
           ...trip,
           name: tripSettings?.title || trip.name || '新旅程',
           lastModified: new Date().toISOString(),
-          data: safeData,
+          data: cleanedSafeData,  // 使用已清理的數據
         };
       }
       return trip;
@@ -825,9 +833,11 @@ export default function App() {
       try {
         updatedTrips.forEach(trip => {
           const tripRef = ref(database, `trips/${trip.id}`);
-          // 深層移除 undefined 值
+          // 再次深層清理，確保完全沒有 undefined
           const cleanedTrip = removeUndefined(trip);
-          set(tripRef, cleanedTrip);
+          // 使用 JSON.parse(JSON.stringify()) 進一步確保移除 undefined
+          const finalCleanedTrip = JSON.parse(JSON.stringify(cleanedTrip));
+          set(tripRef, finalCleanedTrip);
         });
         
         // 更新當前旅程 ID
