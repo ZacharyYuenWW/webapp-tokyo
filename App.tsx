@@ -639,6 +639,9 @@ export default function App() {
   const [loadingRoute, setLoadingRoute] = useState<string | null>(null);
   const [scheduleHistory, setScheduleHistory] = useState<DaySchedule[][]>([]);
   const [firebaseConnected, setFirebaseConnected] = useState(false);
+  // 用於防止 Firebase 同步覆蓋本地更改
+  const isLocalChangeRef = useRef(false);
+  const lastSaveTimeRef = useRef(0);
   const [currentTripId, setCurrentTripId] = useState<string>(() => {
     return localStorage.getItem(CURRENT_TRIP_ID_KEY) || 'default-trip';
   });
@@ -744,6 +747,10 @@ export default function App() {
 
   // 保存當前旅程數據到 Firebase
   const saveCurrentTrip = () => {
+    // 標記這是本地更改，防止 Firebase 監聽器覆蓋
+    isLocalChangeRef.current = true;
+    lastSaveTimeRef.current = Date.now();
+    
     // 確保所有數據都有預設值，避免 undefined
     const safeExpenses = ensureArray(expenses, []);
     const safeSchedule = ensureArray(schedule, []);
@@ -794,15 +801,34 @@ export default function App() {
         // 更新當前旅程 ID
         const currentTripRef = ref(database, 'sharedData/currentTripId');
         set(currentTripRef, currentTripId);
+        
+        console.log('數據已保存到 Firebase');
       } catch (error) {
         console.error('Firebase 保存失敗:', error);
       }
     }
+    
+    // 3秒後重置標誌，允許接收其他用戶的更新
+    setTimeout(() => {
+      isLocalChangeRef.current = false;
+    }, 3000);
   };
 
-  // 自動保存當前旅程
+  // 自動保存當前旅程（防抖：500ms 內的多次更改只保存一次）
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    saveCurrentTrip();
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveCurrentTrip();
+    }, 500);
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [schedule, checklist, expenses, persons, checklistUsers, flights, tripSettings, exchangeRate, scheduleHistory]);
 
   // 監聯 Firebase 數據變化（即時同步）
@@ -819,6 +845,13 @@ export default function App() {
       
       const unsubscribe = onValue(tripsRef, (snapshot) => {
         setFirebaseConnected(true);
+        
+        // 如果是本地更改剛保存的，跳過這次更新（防止覆蓋）
+        const timeSinceLastSave = Date.now() - lastSaveTimeRef.current;
+        if (isLocalChangeRef.current && timeSinceLastSave < 3000) {
+          console.log('跳過 Firebase 更新（本地更改中）');
+          return;
+        }
         
         if (snapshot.exists()) {
           const firebaseTrips = snapshot.val();
@@ -844,6 +877,7 @@ export default function App() {
           // 如果當前旅程在 Firebase 中有更新，同步到本地
           const currentTrip = tripsArray.find(t => t.id === currentTripId);
           if (currentTrip && currentTrip.data) {
+            console.log('從 Firebase 同步數據');
             setSchedule(currentTrip.data.schedule || []);
             setChecklist(currentTrip.data.checklist || []);
             setExpenses(Array.isArray(currentTrip.data.expenses) ? currentTrip.data.expenses : []);
@@ -854,6 +888,10 @@ export default function App() {
             setExchangeRate(currentTrip.data.exchangeRate || 0.052);
             setScheduleHistory(currentTrip.data.scheduleHistory || []);
           }
+        } else {
+          // Firebase 沒有數據，上傳本地數據
+          console.log('Firebase 沒有數據，上傳本地數據');
+          saveCurrentTrip();
         }
       }, (error) => {
         console.error('Firebase 讀取失敗:', error);
