@@ -2213,8 +2213,7 @@ export default function App() {
                         </div>
                         <div style={{ fontSize: '14px', color: '#7F8C8D', marginTop: '8px' }}>
                           📅 {(trip.data.schedule || []).length} 天行程 | 
-                          ✅ {(trip.data.checklist || []).length} 項清單 | 
-                          💰 {(trip.data.expenses || []).length} 筆支出
+                          ✅ {(trip.data.checklist || []).length} 項清單
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
