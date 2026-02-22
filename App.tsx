@@ -645,23 +645,42 @@ export default function App() {
   const [allTrips, setAllTrips] = useState<Trip[]>(() => {
     const saved = localStorage.getItem(TRIPS_LIST_KEY);
     if (saved) {
-      return JSON.parse(saved);
+      try {
+        const parsed = JSON.parse(saved);
+        // 確保所有 trip 數據都有預設值
+        return parsed.map((trip: Trip) => ({
+          ...trip,
+          data: {
+            schedule: trip.data?.schedule || [],
+            checklist: trip.data?.checklist || [],
+            expenses: trip.data?.expenses || [],
+            persons: trip.data?.persons || initialPersons,
+            checklistUsers: trip.data?.checklistUsers || [],
+            flights: trip.data?.flights || [],
+            tripSettings: trip.data?.tripSettings || initialTripSettings,
+            exchangeRate: trip.data?.exchangeRate || 0.052,
+            scheduleHistory: trip.data?.scheduleHistory || [],
+          },
+        }));
+      } catch {
+        // 解析失敗，創建默認旅程
+      }
     }
-    // 創建默認旅程
+    // 創建默認旅程（使用安全的空陣列）
     const defaultTrip: Trip = {
       id: 'default-trip',
-      name: tripSettings.title || '日本之旅',
+      name: '日本之旅',
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
       data: {
-        schedule,
-        checklist,
-        expenses,
-        persons,
-        checklistUsers,
-        flights,
-        tripSettings,
-        exchangeRate,
+        schedule: initialSchedule,
+        checklist: [],
+        expenses: [],
+        persons: initialPersons,
+        checklistUsers: initialChecklistUsers,
+        flights: [],
+        tripSettings: initialTripSettings,
+        exchangeRate: 0.052,
         scheduleHistory: [],
       },
     };
@@ -763,7 +782,20 @@ export default function App() {
         
         if (snapshot.exists()) {
           const firebaseTrips = snapshot.val();
-          const tripsArray = Object.values(firebaseTrips) as Trip[];
+          const tripsArray = (Object.values(firebaseTrips) as Trip[]).map(trip => ({
+            ...trip,
+            data: {
+              schedule: trip.data?.schedule || [],
+              checklist: trip.data?.checklist || [],
+              expenses: trip.data?.expenses || [],
+              persons: trip.data?.persons || initialPersons,
+              checklistUsers: trip.data?.checklistUsers || [],
+              flights: trip.data?.flights || [],
+              tripSettings: trip.data?.tripSettings || initialTripSettings,
+              exchangeRate: trip.data?.exchangeRate || 0.052,
+              scheduleHistory: trip.data?.scheduleHistory || [],
+            },
+          }));
           
           // 更新本地狀態
           setAllTrips(tripsArray);
@@ -778,7 +810,7 @@ export default function App() {
             setPersons(currentTrip.data.persons || initialPersons);
             setChecklistUsers(currentTrip.data.checklistUsers || []);
             setFlights(currentTrip.data.flights || []);
-            setTripSettings(currentTrip.data.tripSettings || loadTripSettings());
+            setTripSettings(currentTrip.data.tripSettings || initialTripSettings);
             setExchangeRate(currentTrip.data.exchangeRate || 0.052);
             setScheduleHistory(currentTrip.data.scheduleHistory || []);
           }
