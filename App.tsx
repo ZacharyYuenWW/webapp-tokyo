@@ -833,10 +833,31 @@ export default function App() {
       try {
         updatedTrips.forEach(trip => {
           const tripRef = ref(database, `trips/${trip.id}`);
-          // 再次深層清理，確保完全沒有 undefined
-          const cleanedTrip = removeUndefined(trip);
-          // 使用 JSON.parse(JSON.stringify()) 進一步確保移除 undefined
-          const finalCleanedTrip = JSON.parse(JSON.stringify(cleanedTrip));
+          
+          // 為保險起見，我們手動構建要保存的對象，而不依賴可能含有隱藏 undefined 的舊對象
+          // 這樣可以確保結構完全正確
+          
+          // 如果是當前旅程，我們已經有了清理過的 safeData
+          let dataToSave;
+          
+          if (trip.id === currentTripId) {
+             dataToSave = {
+              ...trip,
+              data: cleanedSafeData
+             };
+          } else {
+             // 對於其他旅程，我們也需要確保 data 屬性存在且乾淨
+             dataToSave = {
+               ...trip,
+               data: trip.data ? removeUndefined(trip.data) : {} // 確保 data 被清理
+             };
+          }
+
+          // 最後一道防線：JSON 序列化清理
+          // 注意：JSON.stringify 會忽略 undefined 的鍵，將 array 中的 undefined 轉為 null
+          // 這正是 Firebase 想要的行為（除了 array 中的 null 可能不是我們想要的，但比 error 好）
+          const finalCleanedTrip = JSON.parse(JSON.stringify(dataToSave));
+          
           set(tripRef, finalCleanedTrip);
         });
         
