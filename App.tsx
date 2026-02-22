@@ -786,6 +786,29 @@ export default function App() {
     saveCurrentTrip();
   }, [schedule, checklist, expenses, persons, checklistUsers, flights, tripSettings, exchangeRate, scheduleHistory]);
 
+  // 一次性清理 Firebase 中的損壞數據
+  useEffect(() => {
+    if (!database) return;
+    
+    const cleanupFirebase = async () => {
+      try {
+        const tripsRef = ref(database, 'trips');
+        // 刪除舊的損壞數據，讓應用重新創建乾淨的數據
+        await remove(tripsRef);
+        console.log('Firebase data cleaned up successfully');
+      } catch (error) {
+        console.error('Firebase cleanup error:', error);
+      }
+    };
+    
+    // 檢查是否需要清理（只在第一次運行時清理）
+    const cleanupDone = localStorage.getItem('firebase_cleanup_v2');
+    if (!cleanupDone) {
+      cleanupFirebase();
+      localStorage.setItem('firebase_cleanup_v2', 'true');
+    }
+  }, []);
+
   // 監聽 Firebase 數據變化（即時同步）
   useEffect(() => {
     // 如果 Firebase 未初始化，跳過
