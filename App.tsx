@@ -155,12 +155,7 @@ function loadSchedule(): DaySchedule[] {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      // 如果儲存的資料少於8天，使用初始資料
-      if (parsed.length < 8) {
-        console.log('資料已更新至8天版本');
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(initialSchedule));
-        return initialSchedule;
-      }
+      // 直接返回已存儲的資料，不自動重置
       return parsed;
     }
     return initialSchedule;
