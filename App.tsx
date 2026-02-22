@@ -718,22 +718,24 @@ export default function App() {
     });
     setAllTrips(updatedTrips);
     
-    // 同時保存到 localStorage（作為備份）和 Firebase
+    // 同時保存到 localStorage（作為備份）
     localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(updatedTrips));
     
-    // 保存到 Firebase
-    try {
-      const tripsRef = ref(database, 'trips');
-      updatedTrips.forEach(trip => {
-        const tripRef = ref(database, `trips/${trip.id}`);
-        set(tripRef, trip);
-      });
-      
-      // 更新當前旅程 ID
-      const currentTripRef = ref(database, 'sharedData/currentTripId');
-      set(currentTripRef, currentTripId);
-    } catch (error) {
-      console.error('Firebase 保存失敗:', error);
+    // 保存到 Firebase（如果已初始化）
+    if (database) {
+      try {
+        const tripsRef = ref(database, 'trips');
+        updatedTrips.forEach(trip => {
+          const tripRef = ref(database, `trips/${trip.id}`);
+          set(tripRef, trip);
+        });
+        
+        // 更新當前旅程 ID
+        const currentTripRef = ref(database, 'sharedData/currentTripId');
+        set(currentTripRef, currentTripId);
+      } catch (error) {
+        console.error('Firebase 保存失敗:', error);
+      }
     }
   };
 
@@ -744,40 +746,52 @@ export default function App() {
 
   // 監聽 Firebase 數據變化（即時同步）
   useEffect(() => {
-    const tripsRef = ref(database, 'trips');
-    
-    const unsubscribe = onValue(tripsRef, (snapshot) => {
-      setFirebaseConnected(true);
-      
-      if (snapshot.exists()) {
-        const firebaseTrips = snapshot.val();
-        const tripsArray = Object.values(firebaseTrips) as Trip[];
-        
-        // 更新本地狀態
-        setAllTrips(tripsArray);
-        localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(tripsArray));
-        
-        // 如果當前旅程在 Firebase 中有更新，同步到本地
-        const currentTrip = tripsArray.find(t => t.id === currentTripId);
-        if (currentTrip) {
-          setSchedule(currentTrip.data.schedule);
-          setChecklist(currentTrip.data.checklist);
-          setExpenses(currentTrip.data.expenses);
-          setPersons(currentTrip.data.persons);
-          setChecklistUsers(currentTrip.data.checklistUsers);
-          setFlights(currentTrip.data.flights);
-          setTripSettings(currentTrip.data.tripSettings);
-          setExchangeRate(currentTrip.data.exchangeRate);
-          setScheduleHistory(currentTrip.data.scheduleHistory || []);
-        }
-      }
-    }, (error) => {
-      console.error('Firebase 讀取失敗:', error);
+    // 如果 Firebase 未初始化，跳過
+    if (!database) {
+      console.warn('Firebase not initialized, using local storage only');
       setFirebaseConnected(false);
-    });
+      return;
+    }
 
-    // 清理監聽器
-    return () => unsubscribe();
+    try {
+      const tripsRef = ref(database, 'trips');
+      
+      const unsubscribe = onValue(tripsRef, (snapshot) => {
+        setFirebaseConnected(true);
+        
+        if (snapshot.exists()) {
+          const firebaseTrips = snapshot.val();
+          const tripsArray = Object.values(firebaseTrips) as Trip[];
+          
+          // 更新本地狀態
+          setAllTrips(tripsArray);
+          localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(tripsArray));
+          
+          // 如果當前旅程在 Firebase 中有更新，同步到本地
+          const currentTrip = tripsArray.find(t => t.id === currentTripId);
+          if (currentTrip) {
+            setSchedule(currentTrip.data.schedule);
+            setChecklist(currentTrip.data.checklist);
+            setExpenses(currentTrip.data.expenses);
+            setPersons(currentTrip.data.persons);
+            setChecklistUsers(currentTrip.data.checklistUsers);
+            setFlights(currentTrip.data.flights);
+            setTripSettings(currentTrip.data.tripSettings);
+            setExchangeRate(currentTrip.data.exchangeRate);
+            setScheduleHistory(currentTrip.data.scheduleHistory || []);
+          }
+        }
+      }, (error) => {
+        console.error('Firebase 讀取失敗:', error);
+        setFirebaseConnected(false);
+      });
+
+      // 清理監聽器
+      return () => unsubscribe();
+    } catch (error) {
+      console.error('Firebase setup error:', error);
+      setFirebaseConnected(false);
+    }
   }, [currentTripId]);
 
   // 創建新旅程
@@ -881,12 +895,14 @@ export default function App() {
       setAllTrips(updatedTrips);
       localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(updatedTrips));
       
-      // 從 Firebase 刪除
-      try {
-        const tripRef = ref(database, `trips/${tripId}`);
-        remove(tripRef);
-      } catch (error) {
-        console.error('Firebase 刪除失敗:', error);
+      // 從 Firebase 刪除（如果已初始化）
+      if (database) {
+        try {
+          const tripRef = ref(database, `trips/${tripId}`);
+          remove(tripRef);
+        } catch (error) {
+          console.error('Firebase 刪除失敗:', error);
+        }
       }
       
       if (tripId === currentTripId) {
