@@ -264,7 +264,14 @@ function loadChecklist(): ChecklistItem[] {
 function loadExpenses(): ExpenseRecord[] {
   try {
     const saved = localStorage.getItem(EXPENSES_KEY);
-    return saved ? JSON.parse(saved) : [];
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // 確保返回的是有效陣列
+      if (Array.isArray(parsed)) {
+        return parsed.filter(item => item && typeof item === 'object');
+      }
+    }
+    return [];
   } catch {
     return [];
   }
@@ -730,13 +737,33 @@ export default function App() {
         if (obj.hasOwnProperty(key)) {
           const value = obj[key];
           if (value !== undefined) {
-            cleaned[key] = removeUndefined(value);
+            const cleanedValue = removeUndefined(value);
+            // 確保不會設置 undefined 值
+            if (cleanedValue !== undefined) {
+              cleaned[key] = cleanedValue;
+            }
           }
         }
       }
       return cleaned;
     }
     return obj;
+  };
+
+  // 清理支出記錄，確保所有欄位都有有效值（Firebase 不接受 undefined）
+  const cleanExpenseRecord = (exp: any): ExpenseRecord | null => {
+    if (!exp || typeof exp !== 'object') return null;
+    return {
+      id: exp.id || `e${Date.now()}`,
+      date: exp.date || new Date().toISOString().split('T')[0],
+      category: exp.category || '飲食',
+      type: exp.type || '自費',
+      person: exp.person || '',
+      amount: typeof exp.amount === 'number' ? exp.amount : 0,
+      currency: exp.currency || 'JPY',
+      description: exp.description || '',
+      recipient: exp.recipient || '',  // 使用空字串，不用 null 或 undefined
+    };
   };
 
   // 確保陣列安全（不是 undefined 或 null）
@@ -752,7 +779,12 @@ export default function App() {
     lastSaveTimeRef.current = Date.now();
     
     // 確保所有數據都有預設值，避免 undefined
-    const safeExpenses = ensureArray(expenses, []);
+    // 特別清理 expenses 陣列，確保每個項目都有有效值
+    const rawExpenses = ensureArray(expenses, []);
+    const safeExpenses = rawExpenses
+      .map(exp => cleanExpenseRecord(exp))
+      .filter((exp): exp is ExpenseRecord => exp !== null);
+    
     const safeSchedule = ensureArray(schedule, []);
     const safeChecklist = ensureArray(checklist, []);
     const safePersons = ensureArray(persons, initialPersons);
@@ -3497,7 +3529,7 @@ export default function App() {
         {/* Expenses View */}
         {currentView === 'expenses' && (
           <ExpenseTracker
-            expenses={expenses}
+            expenses={Array.isArray(expenses) ? expenses : []}
             onAddExpense={addExpense}
             onDeleteExpense={deleteExpense}
             exchangeRate={exchangeRate}
@@ -3555,7 +3587,7 @@ const ExpenseTracker: React.FC<{
     amount: 0,
     currency: 'JPY',
     description: '',
-    recipient: undefined as string | undefined,
+    recipient: '',  // 使用空字串而不是 undefined
   });
   
   // 從 localStorage 讀取設定
@@ -3575,12 +3607,23 @@ const ExpenseTracker: React.FC<{
 
   const handleSubmit = () => {
     if (formData.amount <= 0) return;
-    onAddExpense(formData);
+    // 清理數據，確保沒有 undefined
+    const cleanedData = {
+      date: formData.date || new Date().toISOString().split('T')[0],
+      category: formData.category || '飲食',
+      type: formData.type || '自費',
+      person: formData.person || '',
+      amount: formData.amount || 0,
+      currency: formData.currency || 'JPY',
+      description: formData.description || '',
+      recipient: formData.recipient || '',  // 確保不是 undefined
+    };
+    onAddExpense(cleanedData);
     setFormData({
       ...formData,
       amount: 0,
       description: '',
-      recipient: undefined,
+      recipient: '',  // 使用空字串
     });
   };
 
