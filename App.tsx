@@ -695,23 +695,26 @@ export default function App() {
 
   // 保存當前旅程數據到 Firebase
   const saveCurrentTrip = () => {
+    // 確保所有數據都有預設值，避免 undefined
+    const safeData = {
+      schedule: schedule || [],
+      checklist: checklist || [],
+      expenses: expenses || [],
+      persons: persons || initialPersons,
+      checklistUsers: checklistUsers || [],
+      flights: flights || [],
+      tripSettings: tripSettings || loadTripSettings(),
+      exchangeRate: exchangeRate || 0.052,
+      scheduleHistory: scheduleHistory || [],
+    };
+
     const updatedTrips = allTrips.map(trip => {
       if (trip.id === currentTripId) {
         return {
           ...trip,
-          name: tripSettings.title || trip.name,
+          name: tripSettings?.title || trip.name || '新旅程',
           lastModified: new Date().toISOString(),
-          data: {
-            schedule,
-            checklist,
-            expenses,
-            persons,
-            checklistUsers,
-            flights,
-            tripSettings,
-            exchangeRate,
-            scheduleHistory,
-          },
+          data: safeData,
         };
       }
       return trip;
@@ -724,7 +727,6 @@ export default function App() {
     // 保存到 Firebase（如果已初始化）
     if (database) {
       try {
-        const tripsRef = ref(database, 'trips');
         updatedTrips.forEach(trip => {
           const tripRef = ref(database, `trips/${trip.id}`);
           set(tripRef, trip);
@@ -769,15 +771,15 @@ export default function App() {
           
           // 如果當前旅程在 Firebase 中有更新，同步到本地
           const currentTrip = tripsArray.find(t => t.id === currentTripId);
-          if (currentTrip) {
-            setSchedule(currentTrip.data.schedule);
-            setChecklist(currentTrip.data.checklist);
-            setExpenses(currentTrip.data.expenses);
-            setPersons(currentTrip.data.persons);
-            setChecklistUsers(currentTrip.data.checklistUsers);
-            setFlights(currentTrip.data.flights);
-            setTripSettings(currentTrip.data.tripSettings);
-            setExchangeRate(currentTrip.data.exchangeRate);
+          if (currentTrip && currentTrip.data) {
+            setSchedule(currentTrip.data.schedule || []);
+            setChecklist(currentTrip.data.checklist || []);
+            setExpenses(currentTrip.data.expenses || []);
+            setPersons(currentTrip.data.persons || initialPersons);
+            setChecklistUsers(currentTrip.data.checklistUsers || []);
+            setFlights(currentTrip.data.flights || []);
+            setTripSettings(currentTrip.data.tripSettings || loadTripSettings());
+            setExchangeRate(currentTrip.data.exchangeRate || 0.052);
             setScheduleHistory(currentTrip.data.scheduleHistory || []);
           }
         }
@@ -1088,8 +1090,13 @@ export default function App() {
       shared: 0,
     };
 
+    if (!expenses || !Array.isArray(expenses)) {
+      return summary;
+    }
+
     expenses.forEach(exp => {
-      const amountHKD = convertToHKD(exp.amount, exp.currency);
+      if (!exp) return;
+      const amountHKD = convertToHKD(exp.amount || 0, exp.currency || 'HKD');
       if (exp.type === '自費') {
         // 動態創建每個人的自費屬性
         const key = `${exp.person}Personal`;
