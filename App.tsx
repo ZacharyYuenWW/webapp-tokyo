@@ -1062,7 +1062,7 @@ export default function App() {
   };
 
   const deleteExpense = (id: string) => {
-    setExpenses(expenses.filter(e => e.id !== id));
+    setExpenses((expenses || []).filter(e => e.id !== id));
   };
 
   const convertToHKD = (amount: number, currency: string): number => {
@@ -1581,7 +1581,7 @@ export default function App() {
       return;
     }
     const personToDelete = persons.find(p => p.id === id);
-    const relatedExpenses = expenses.filter(e => e.person === personToDelete?.name || e.recipient === personToDelete?.name);
+    const relatedExpenses = (expenses || []).filter(e => e.person === personToDelete?.name || e.recipient === personToDelete?.name);
     
     const warningMessage = relatedExpenses.length > 0
       ? `確定要刪除人物「${personToDelete?.name}」嗎？\n\n⚠️ 此人物有 ${relatedExpenses.length} 筆相關支出記錄。\n刪除後這些記錄將保留，但可能顯示異常。`
@@ -2082,9 +2082,9 @@ export default function App() {
                           最後修改: {new Date(trip.lastModified).toLocaleString('zh-TW')}
                         </div>
                         <div style={{ fontSize: '14px', color: '#7F8C8D', marginTop: '8px' }}>
-                          📅 {trip.data.schedule.length} 天行程 | 
-                          ✅ {trip.data.checklist.length} 項清單 | 
-                          💰 {trip.data.expenses.length} 筆支出
+                          📅 {(trip.data.schedule || []).length} 天行程 | 
+                          ✅ {(trip.data.checklist || []).length} 項清單 | 
+                          💰 {(trip.data.expenses || []).length} 筆支出
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
@@ -3477,7 +3477,7 @@ const ExpenseTracker: React.FC<{
   const summary = calculateSummary();
 
   // 按日期分組並排序支出
-  const groupedExpenses = expenses
+  const groupedExpenses = (expenses || [])
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .reduce((groups, exp) => {
       const date = exp.date;
@@ -3776,7 +3776,7 @@ const ExpenseTracker: React.FC<{
       }}>
         <h3 style={{ margin: 0, padding: '20px 24px', color: '#2C3E50', borderBottom: '2px solid #f0f0f0' }}>支出記錄</h3>
         
-        {expenses.length === 0 ? (
+        {(!expenses || expenses.length === 0) ? (
           <p style={{ textAlign: 'center', color: '#7F8C8D', padding: '32px 0' }}>暫無記錄</p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
