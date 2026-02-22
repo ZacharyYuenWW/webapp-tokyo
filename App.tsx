@@ -714,16 +714,21 @@ export default function App() {
 
   // 深層移除 undefined 值（Firebase 不接受 undefined）
   const removeUndefined = (obj: any): any => {
-    if (obj === null || obj === undefined) return null;
+    if (obj === undefined) return null;
+    if (obj === null) return null;
     if (Array.isArray(obj)) {
-      return obj.map(item => removeUndefined(item)).filter(item => item !== undefined);
+      return obj
+        .filter(item => item !== undefined && item !== null)
+        .map(item => removeUndefined(item));
     }
-    if (typeof obj === 'object') {
+    if (typeof obj === 'object' && obj !== null) {
       const cleaned: any = {};
       for (const key in obj) {
-        const value = removeUndefined(obj[key]);
-        if (value !== undefined) {
-          cleaned[key] = value;
+        if (obj.hasOwnProperty(key)) {
+          const value = obj[key];
+          if (value !== undefined) {
+            cleaned[key] = removeUndefined(value);
+          }
         }
       }
       return cleaned;
@@ -731,19 +736,33 @@ export default function App() {
     return obj;
   };
 
+  // 確保陣列安全（不是 undefined 或 null）
+  const ensureArray = <T,>(arr: T[] | undefined | null, defaultValue: T[] = []): T[] => {
+    if (!arr || !Array.isArray(arr)) return defaultValue;
+    return arr;
+  };
+
   // 保存當前旅程數據到 Firebase
   const saveCurrentTrip = () => {
     // 確保所有數據都有預設值，避免 undefined
+    const safeExpenses = ensureArray(expenses, []);
+    const safeSchedule = ensureArray(schedule, []);
+    const safeChecklist = ensureArray(checklist, []);
+    const safePersons = ensureArray(persons, initialPersons);
+    const safeChecklistUsers = ensureArray(checklistUsers, []);
+    const safeFlights = ensureArray(flights, []);
+    const safeScheduleHistory = ensureArray(scheduleHistory, []);
+
     const safeData = {
-      schedule: schedule || [],
-      checklist: checklist || [],
-      expenses: expenses || [],
-      persons: persons || initialPersons,
-      checklistUsers: checklistUsers || [],
-      flights: flights || [],
+      schedule: safeSchedule,
+      checklist: safeChecklist,
+      expenses: safeExpenses,
+      persons: safePersons,
+      checklistUsers: safeChecklistUsers,
+      flights: safeFlights,
       tripSettings: tripSettings || initialTripSettings,
-      exchangeRate: exchangeRate || 0.052,
-      scheduleHistory: scheduleHistory || [],
+      exchangeRate: typeof exchangeRate === 'number' ? exchangeRate : 0.052,
+      scheduleHistory: safeScheduleHistory,
     };
 
     const updatedTrips = allTrips.map(trip => {
@@ -3552,8 +3571,12 @@ const ExpenseTracker: React.FC<{
 
   const summary = calculateSummary();
 
+  // 確保 expenses 是有效陣列
+  const safeExpensesList = Array.isArray(expenses) ? expenses : [];
+
   // 按日期分組並排序支出
-  const groupedExpenses = (expenses || [])
+  const groupedExpenses = safeExpensesList
+    .filter(exp => exp && exp.date) // 過濾無效項目
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .reduce((groups, exp) => {
       const date = exp.date;
@@ -3565,7 +3588,8 @@ const ExpenseTracker: React.FC<{
     }, {} as Record<string, ExpenseRecord[]>);
 
   const calculateDayTotal = (dayExpenses: ExpenseRecord[]) => {
-    return dayExpenses.reduce((sum, exp) => sum + convertToHKD(exp.amount, exp.currency), 0);
+    if (!Array.isArray(dayExpenses)) return 0;
+    return dayExpenses.reduce((sum, exp) => sum + convertToHKD(exp?.amount || 0, exp?.currency || 'HKD'), 0);
   };
 
   return (
