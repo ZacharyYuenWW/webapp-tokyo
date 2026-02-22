@@ -805,30 +805,7 @@ export default function App() {
     saveCurrentTrip();
   }, [schedule, checklist, expenses, persons, checklistUsers, flights, tripSettings, exchangeRate, scheduleHistory]);
 
-  // 一次性清理 Firebase 中的損壞數據
-  useEffect(() => {
-    if (!database) return;
-    
-    const cleanupFirebase = async () => {
-      try {
-        const tripsRef = ref(database, 'trips');
-        // 刪除舊的損壞數據，讓應用重新創建乾淨的數據
-        await remove(tripsRef);
-        console.log('Firebase data cleaned up successfully');
-      } catch (error) {
-        console.error('Firebase cleanup error:', error);
-      }
-    };
-    
-    // 檢查是否需要清理（只在第一次運行時清理）
-    const cleanupDone = localStorage.getItem('firebase_cleanup_v2');
-    if (!cleanupDone) {
-      cleanupFirebase();
-      localStorage.setItem('firebase_cleanup_v2', 'true');
-    }
-  }, []);
-
-  // 監聽 Firebase 數據變化（即時同步）
+  // 監聯 Firebase 數據變化（即時同步）
   useEffect(() => {
     // 如果 Firebase 未初始化，跳過
     if (!database) {
@@ -869,7 +846,7 @@ export default function App() {
           if (currentTrip && currentTrip.data) {
             setSchedule(currentTrip.data.schedule || []);
             setChecklist(currentTrip.data.checklist || []);
-            setExpenses(currentTrip.data.expenses || []);
+            setExpenses(Array.isArray(currentTrip.data.expenses) ? currentTrip.data.expenses : []);
             setPersons(currentTrip.data.persons || initialPersons);
             setChecklistUsers(currentTrip.data.checklistUsers || []);
             setFlights(currentTrip.data.flights || []);
@@ -945,14 +922,14 @@ export default function App() {
     // 切換到新旅程
     setCurrentTripId(newTrip.id);
     localStorage.setItem(CURRENT_TRIP_ID_KEY, newTrip.id);
-    setSchedule(newTrip.data.schedule);
-    setChecklist(newTrip.data.checklist);
-    setExpenses(newTrip.data.expenses);
-    setPersons(newTrip.data.persons);
-    setChecklistUsers(newTrip.data.checklistUsers);
-    setFlights(newTrip.data.flights);
-    setTripSettings(newTrip.data.tripSettings);
-    setExchangeRate(newTrip.data.exchangeRate);
+    setSchedule(newTrip.data.schedule || []);
+    setChecklist(newTrip.data.checklist || []);
+    setExpenses(Array.isArray(newTrip.data.expenses) ? newTrip.data.expenses : []);
+    setPersons(newTrip.data.persons || initialPersons);
+    setChecklistUsers(newTrip.data.checklistUsers || []);
+    setFlights(newTrip.data.flights || []);
+    setTripSettings(newTrip.data.tripSettings || initialTripSettings);
+    setExchangeRate(newTrip.data.exchangeRate || 0.052);
     setScheduleHistory(newTrip.data.scheduleHistory || []);
     setSelectedDay(0);
     setCurrentView('schedule');
@@ -967,14 +944,14 @@ export default function App() {
     if (trip) {
       setCurrentTripId(tripId);
       localStorage.setItem(CURRENT_TRIP_ID_KEY, tripId);
-      setSchedule(trip.data.schedule);
-      setChecklist(trip.data.checklist);
-      setExpenses(trip.data.expenses);
-      setPersons(trip.data.persons);
-      setChecklistUsers(trip.data.checklistUsers);
-      setFlights(trip.data.flights);
-      setTripSettings(trip.data.tripSettings);
-      setExchangeRate(trip.data.exchangeRate);
+      setSchedule(trip.data.schedule || []);
+      setChecklist(trip.data.checklist || []);
+      setExpenses(Array.isArray(trip.data.expenses) ? trip.data.expenses : []);
+      setPersons(trip.data.persons || initialPersons);
+      setChecklistUsers(trip.data.checklistUsers || []);
+      setFlights(trip.data.flights || []);
+      setTripSettings(trip.data.tripSettings || initialTripSettings);
+      setExchangeRate(trip.data.exchangeRate || 0.052);
       setScheduleHistory(trip.data.scheduleHistory || []);
       setSelectedDay(0);
       setCurrentView('schedule');
@@ -1153,11 +1130,11 @@ export default function App() {
       ...expense,
       id: `e${Date.now()}`,
     };
-    setExpenses([...expenses, newExpense]);
+    setExpenses(prev => [...(Array.isArray(prev) ? prev : []), newExpense]);
   };
 
   const deleteExpense = (id: string) => {
-    setExpenses((expenses || []).filter(e => e.id !== id));
+    setExpenses(prev => (Array.isArray(prev) ? prev : []).filter(e => e && e.id !== id));
   };
 
   const convertToHKD = (amount: number, currency: string): number => {
@@ -3601,9 +3578,9 @@ const ExpenseTracker: React.FC<{
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
         {persons.map((person, idx) => {
-          const personalAmount = expenses
-            .filter(exp => exp.type === '自費' && exp.person === person.name)
-            .reduce((sum, exp) => sum + convertToHKD(exp.amount, exp.currency), 0);
+          const personalAmount = safeExpensesList
+            .filter(exp => exp && exp.type === '自費' && exp.person === person.name)
+            .reduce((sum, exp) => sum + convertToHKD(exp?.amount || 0, exp?.currency || 'HKD'), 0);
           const colors = [
             'linear-gradient(135deg, #A8DADC 0%, #457B9D 100%)',
             'linear-gradient(135deg, #457B9D 0%, #1D3557 100%)',
@@ -3620,15 +3597,15 @@ const ExpenseTracker: React.FC<{
         <div style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #B8860B 100%)', padding: '20px', borderRadius: '12px', color: 'white' }}>
           <div style={{ fontSize: '14px', opacity: 0.9 }}>{sharedExpenseEmoji} 公家支出</div>
           <div style={{ fontSize: '28px', fontWeight: '700', marginTop: '8px' }}>HK$ {summary.shared.toFixed(0)}</div>
-          <div style={{ fontSize: '12px', marginTop: '4px' }}>每人: HK$ {(summary.shared / persons.length).toFixed(0)}</div>
+          <div style={{ fontSize: '12px', marginTop: '4px' }}>每人: HK$ {(summary.shared / Math.max(1, persons.length)).toFixed(0)}</div>
         </div>
         {enableGiftExpense && (
           <div style={{ background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%)', padding: '20px', borderRadius: '12px', color: 'white' }}>
             <div style={{ fontSize: '14px', opacity: 0.9 }}>🎁 送贈支出</div>
             {persons.map(person => {
-              const giftAmount = expenses
-                .filter(exp => exp.type === '送贈' && exp.recipient === person.name)
-                .reduce((sum, exp) => sum + convertToHKD(exp.amount, exp.currency), 0);
+              const giftAmount = safeExpensesList
+                .filter(exp => exp && exp.type === '送贈' && exp.recipient === person.name)
+                .reduce((sum, exp) => sum + convertToHKD(exp?.amount || 0, exp?.currency || 'HKD'), 0);
               return (
                 <div key={person.id} style={{ fontSize: '14px', marginTop: '4px' }}>
                   給 {person.name}: HK$ {giftAmount.toFixed(0)}
