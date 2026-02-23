@@ -617,8 +617,7 @@ export default function App() {
   const [editForm, setEditForm] = useState<Partial<Activity>>({});
   const [currentView, setCurrentView] = useState<'schedule' | 'checklist' | 'expenses' | 'flights' | 'settings' | 'trips'>('schedule');
   const [checklist, setChecklist] = useState<ChecklistItem[]>(loadChecklist);
-// expenses state removed
-  // const [expenses, setExpenses] = useState<ExpenseRecord[]>(loadExpenses);
+const [expenses, setExpenses] = useState<ExpenseRecord[]>(loadExpenses);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [mapCenter, setMapCenter] = useState<[number, number]>([35.6762, 139.6503]);
   const [mapZoom, setMapZoom] = useState(12);
@@ -702,9 +701,9 @@ export default function App() {
     localStorage.setItem(CHECKLIST_KEY, JSON.stringify(checklist));
   }, [checklist]);
 
-//   useEffect(() => {
-// // localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
-//   }, [expenses]);
+  useEffect(() => {
+    localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
+  }, [expenses]);
 
   useEffect(() => {
     localStorage.setItem(TRIP_SETTINGS_KEY, JSON.stringify(tripSettings));
@@ -780,8 +779,10 @@ export default function App() {
     
     // 確保所有數據都有預設值，避免 undefined
     // 特別清理 expenses 陣列，確保每個項目都有有效值
-    // expenses removed
-    const safeExpenses: ExpenseRecord[] = [];
+    const rawExpenses = ensureArray(expenses, []);
+    const safeExpenses = rawExpenses
+      .map(exp => cleanExpenseRecord(exp))
+      .filter((exp): exp is ExpenseRecord => exp !== null);
     
     const safeSchedule = ensureArray(schedule, []);
     const safeChecklist = ensureArray(checklist, []);
@@ -840,14 +841,10 @@ export default function App() {
               data: cleanedSafeData
              };
           } else {
-             // 對於其他旅程，我們也需要確保 data 屬性存在且乾淨，並移除 expenses
-             const cleanedData = trip.data ? removeUndefined(trip.data) : {};
-             if (cleanedData && typeof cleanedData === 'object') {
-                cleanedData.expenses = [];
-             }
+             // 對於其他旅程，我們也需要確保 data 屬性存在且乾淨
              dataToSave = {
                ...trip,
-               data: cleanedData
+               data: trip.data ? removeUndefined(trip.data) : {}
              };
           }
 
@@ -890,7 +887,7 @@ export default function App() {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [schedule, checklist, persons, checklistUsers, flights, tripSettings, exchangeRate, scheduleHistory]);
+  }, [schedule, checklist, expenses, persons, checklistUsers, flights, tripSettings, exchangeRate, scheduleHistory]);
 
   // 監聯 Firebase 數據變化（即時同步）
   useEffect(() => {
@@ -972,7 +969,7 @@ export default function App() {
             if (currentTrip && currentTrip.data) {
               setSchedule(currentTrip.data.schedule || []);
               setChecklist(currentTrip.data.checklist || []);
-              // setExpenses removed
+              setExpenses(Array.isArray(currentTrip.data.expenses) ? currentTrip.data.expenses : []);
               setPersons(currentTrip.data.persons || initialPersons);
               setChecklistUsers(currentTrip.data.checklistUsers || []);
               setFlights(currentTrip.data.flights || []);
@@ -1063,8 +1060,7 @@ export default function App() {
     localStorage.setItem(CURRENT_TRIP_ID_KEY, newTrip.id);
     setSchedule(newTrip.data.schedule || []);
     setChecklist(newTrip.data.checklist || []);
-// setExpenses disabled
-// setExpenses(Array.isArray(newTrip.data.expenses) ? newTrip.data.expenses : []);
+    setExpenses(Array.isArray(newTrip.data.expenses) ? newTrip.data.expenses : []);
     setPersons(newTrip.data.persons || initialPersons);
     setChecklistUsers(newTrip.data.checklistUsers || []);
     setFlights(newTrip.data.flights || []);
@@ -1086,8 +1082,7 @@ export default function App() {
       localStorage.setItem(CURRENT_TRIP_ID_KEY, tripId);
       setSchedule(trip.data.schedule || []);
       setChecklist(trip.data.checklist || []);
-// setExpenses disabled
-// setExpenses(Array.isArray(trip.data.expenses) ? trip.data.expenses : []);
+      setExpenses(Array.isArray(trip.data.expenses) ? trip.data.expenses : []);
       setPersons(trip.data.persons || initialPersons);
       setChecklistUsers(trip.data.checklistUsers || []);
       setFlights(trip.data.flights || []);
@@ -1267,11 +1262,15 @@ export default function App() {
   };
 
   const addExpense = (expense: Omit<ExpenseRecord, 'id'>) => {
-    // Feature disabled
+    const newExpense: ExpenseRecord = {
+      ...expense,
+      id: `e${Date.now()}`,
+    };
+    setExpenses(prev => [...(Array.isArray(prev) ? prev : []), newExpense]);
   };
 
   const deleteExpense = (id: string) => {
-    // Feature disabled
+    setExpenses(prev => (Array.isArray(prev) ? prev : []).filter(e => e && e.id !== id));
   };
 
 
@@ -1296,7 +1295,31 @@ export default function App() {
   };
 
   const calculateExpenseSummary = () => {
-    return { shared: 0 };
+    const summary: any = {
+      shared: 0,
+    };
+
+    if (!expenses || !Array.isArray(expenses)) {
+      return summary;
+    }
+
+    expenses.forEach(exp => {
+      if (!exp) return;
+      const amountHKD = convertToHKD(exp.amount || 0, exp.currency || 'HKD');
+      if (exp.type === '自費') {
+        const key = `${exp.person}Personal`;
+        summary[key] = (summary[key] || 0) + amountHKD;
+      } else if (exp.type === '公家') {
+        summary.shared += amountHKD;
+      } else if (exp.type === '送贈') {
+        if (exp.recipient) {
+          const key = `giftTo${exp.recipient}`;
+          summary[key] = (summary[key] || 0) + amountHKD;
+        }
+      }
+    });
+
+    return summary;
   };
 
 
@@ -2088,6 +2111,21 @@ export default function App() {
             ✅ 行李清單
           </button>
           <button
+            onClick={() => setCurrentView('expenses')}
+            style={{
+              padding: '12px 24px',
+              background: currentView === 'expenses' ? 'linear-gradient(135deg, #A8DADC 0%, #457B9D 100%)' : 'white',
+              color: currentView === 'expenses' ? 'white' : '#2C3E50',
+              border: 'none',
+              borderRadius: '8px 8px 0 0',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '16px',
+            }}
+          >
+            💰 記帳
+          </button>
+          <button
             onClick={() => setCurrentView('settings')}
             style={{
               padding: '12px 24px',
@@ -2253,7 +2291,8 @@ export default function App() {
                         </div>
                         <div style={{ fontSize: '14px', color: '#7F8C8D', marginTop: '8px' }}>
                           📅 {(trip.data.schedule || []).length} 天行程 | 
-                          ✅ {(trip.data.checklist || []).length} 項清單
+                          ✅ {(trip.data.checklist || []).length} 項清單 | 
+                          💰 {(trip.data.expenses || []).length} 筆支出
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '8px' }}>
@@ -3554,7 +3593,37 @@ export default function App() {
         )}
 
 
-        {/* Expenses View removed */}
+        {/* Expenses View */}
+        {currentView === 'expenses' && (
+          <ExpenseTracker
+            expenses={expenses}
+            onAddExpense={addExpense}
+            onDeleteExpense={deleteExpense}
+            exchangeRate={exchangeRate}
+            calculateSummary={calculateExpenseSummary}
+            convertToHKD={convertToHKD}
+            persons={persons}
+            onAddPerson={() => {
+              if (newPersonName.trim()) {
+                const newPerson: Person = {
+                  id: `p${Date.now()}`,
+                  name: newPersonName.trim(),
+                  emoji: newPersonEmoji,
+                };
+                setPersons(prev => [...prev, newPerson]);
+                setNewPersonName('');
+                setNewPersonEmoji('👤');
+              }
+            }}
+            onDeletePerson={(id) => {
+              setPersons(prev => prev.filter(p => p.id !== id));
+            }}
+            newPersonName={newPersonName}
+            setNewPersonName={setNewPersonName}
+            newPersonEmoji={newPersonEmoji}
+            setNewPersonEmoji={setNewPersonEmoji}
+          />
+        )}
 
       </div>
     </DndProvider>
@@ -3562,6 +3631,480 @@ export default function App() {
 }
 
 // 記帳組件
-// ExpenseTracker component removed
+const ExpenseTracker: React.FC<{
+  expenses: ExpenseRecord[];
+  onAddExpense: (expense: Omit<ExpenseRecord, 'id'>) => void;
+  onDeleteExpense: (id: string) => void;
+  exchangeRate: number;
+  calculateSummary: () => any;
+  convertToHKD: (amount: number, currency: string) => number;
+  persons: Person[];
+  onAddPerson: () => void;
+  onDeletePerson: (id: string) => void;
+  newPersonName: string;
+  setNewPersonName: (name: string) => void;
+  newPersonEmoji: string;
+  setNewPersonEmoji: (emoji: string) => void;
+}> = ({ 
+  expenses, 
+  onAddExpense, 
+  onDeleteExpense, 
+  exchangeRate, 
+  calculateSummary, 
+  convertToHKD,
+  persons,
+  onAddPerson,
+  onDeletePerson,
+  newPersonName,
+  setNewPersonName,
+  newPersonEmoji,
+  setNewPersonEmoji,
+}) => {
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    category: '飲食' as '飲食' | '交通' | '購物',
+    type: '自費' as '自費' | '公家' | '送贈',
+    person: persons.length > 0 ? persons[0].name : '',
+    amount: 0,
+    currency: 'JPY',
+    description: '',
+    recipient: '',
+  });
+  
+  const [sharedExpenseEmoji, setSharedExpenseEmoji] = useState(
+    localStorage.getItem('sharedExpenseEmoji') || '💑'
+  );
+  const [enableGiftExpense, setEnableGiftExpense] = useState(true);
 
+  useEffect(() => {
+    localStorage.setItem('sharedExpenseEmoji', sharedExpenseEmoji);
+  }, [sharedExpenseEmoji]);
+
+  const handleSubmit = () => {
+    if (formData.amount <= 0) return;
+    const cleanedData = {
+      date: formData.date || new Date().toISOString().split('T')[0],
+      category: formData.category || '飲食',
+      type: formData.type || '自費',
+      person: formData.person || '',
+      amount: formData.amount || 0,
+      currency: formData.currency || 'JPY',
+      description: formData.description || '',
+      recipient: formData.recipient || '',
+    };
+    onAddExpense(cleanedData);
+    setFormData({
+      ...formData,
+      amount: 0,
+      description: '',
+      recipient: '',
+    });
+  };
+
+  const summary = calculateSummary();
+  const safeExpensesList = Array.isArray(expenses) ? expenses : [];
+
+  const groupedExpenses = safeExpensesList
+    .filter(exp => exp && exp.date)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .reduce((groups, exp) => {
+      const date = exp.date;
+      if (!groups[date]) {
+        groups[date] = [];
+      }
+      groups[date].push(exp);
+      return groups;
+    }, {} as Record<string, ExpenseRecord[]>);
+
+  const calculateDayTotal = (dayExpenses: ExpenseRecord[]) => {
+    if (!Array.isArray(dayExpenses)) return 0;
+    return dayExpenses.reduce((sum, exp) => sum + convertToHKD(exp?.amount || 0, exp?.currency || 'HKD'), 0);
+  };
+
+  return (
+    <div style={{
+      maxWidth: '1400px',
+      margin: '0 auto',
+      padding: '24px',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+    }}>
+      <h1 style={{ textAlign: 'center', color: '#2C3E50', marginBottom: '32px' }}>💰 旅遊記帳助手</h1>
+
+      {/* Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+        {persons.map((person, idx) => {
+          const personalAmount = safeExpensesList
+            .filter(exp => exp && exp.type === '自費' && exp.person === person.name)
+            .reduce((sum, exp) => sum + convertToHKD(exp?.amount || 0, exp?.currency || 'HKD'), 0);
+          const colors = [
+            'linear-gradient(135deg, #A8DADC 0%, #457B9D 100%)',
+            'linear-gradient(135deg, #457B9D 0%, #1D3557 100%)',
+            'linear-gradient(135deg, #8E7CC3 0%, #6A5A9B 100%)',
+            'linear-gradient(135deg, #F4A460 0%, #D2691E 100%)',
+          ];
+          return (
+            <div key={person.id} style={{ background: colors[idx % colors.length], padding: '20px', borderRadius: '12px', color: 'white' }}>
+              <div style={{ fontSize: '14px', opacity: 0.9 }}>{person.emoji} {person.name} 自費</div>
+              <div style={{ fontSize: '28px', fontWeight: '700', marginTop: '8px' }}>HK$ {personalAmount.toFixed(0)}</div>
+            </div>
+          );
+        })}
+        <div style={{ background: 'linear-gradient(135deg, #D4AF37 0%, #B8860B 100%)', padding: '20px', borderRadius: '12px', color: 'white' }}>
+          <div style={{ fontSize: '14px', opacity: 0.9 }}>{sharedExpenseEmoji} 公家支出</div>
+          <div style={{ fontSize: '28px', fontWeight: '700', marginTop: '8px' }}>HK$ {summary.shared.toFixed(0)}</div>
+          <div style={{ fontSize: '12px', marginTop: '4px' }}>每人: HK$ {(summary.shared / Math.max(1, persons.length)).toFixed(0)}</div>
+        </div>
+        {enableGiftExpense && (
+          <div style={{ background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%)', padding: '20px', borderRadius: '12px', color: 'white' }}>
+            <div style={{ fontSize: '14px', opacity: 0.9 }}>🎁 送贈支出</div>
+            {persons.map(person => {
+              const giftAmount = safeExpensesList
+                .filter(exp => exp && exp.type === '送贈' && exp.recipient === person.name)
+                .reduce((sum, exp) => sum + convertToHKD(exp?.amount || 0, exp?.currency || 'HKD'), 0);
+              return (
+                <div key={person.id} style={{ fontSize: '14px', marginTop: '4px' }}>
+                  給 {person.name}: HK$ {giftAmount.toFixed(0)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Person Management */}
+      <div style={{
+        background: 'white',
+        padding: '24px',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        marginBottom: '24px',
+      }}>
+        <h3 style={{ margin: '0 0 16px 0', color: '#2C3E50' }}>人物管理</h3>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <select
+            value={newPersonEmoji}
+            onChange={(e) => setNewPersonEmoji(e.target.value)}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc', width: '100px' }}
+          >
+            <option value="👤">👤</option>
+            <option value="👦">👦</option>
+            <option value="👧">👧</option>
+            <option value="👨">👨</option>
+            <option value="👩">👩</option>
+            <option value="👴">👴</option>
+            <option value="👵">👵</option>
+            <option value="👶">👶</option>
+            <option value="👱">👱</option>
+            <option value="💂">💂</option>
+            <option value="👷">👷</option>
+            <option value="👮">👮</option>
+            <option value="🕵️">🕵️</option>
+            <option value="🧑">🧑</option>
+            <option value="👰">👰</option>
+            <option value="🤵">🤵</option>
+          </select>
+          <input
+            type="text"
+            placeholder="人物名稱"
+            value={newPersonName}
+            onChange={(e) => setNewPersonName(e.target.value)}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc', flex: 1, minWidth: '200px' }}
+          />
+          <button
+            onClick={onAddPerson}
+            style={{
+              background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600',
+            }}
+          >
+            ➕ 新增人物
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          {persons.map((person) => (
+            <div
+              key={person.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                background: '#f0f0f0',
+                borderRadius: '20px',
+              }}
+            >
+              <span>{person.emoji} {person.name}</span>
+              <button
+                onClick={() => onDeletePerson(person.id)}
+                style={{
+                  background: '#ff6b6b',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '20px',
+                  height: '20px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                title="刪除人物"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Add Expense Form */}
+      <div style={{
+        background: 'white',
+        padding: '24px',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        marginBottom: '24px',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0, color: '#2C3E50' }}>新增支出</h3>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
+            <input
+              type="checkbox"
+              checked={enableGiftExpense}
+              onChange={(e) => setEnableGiftExpense(e.target.checked)}
+              style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+            />
+            <span>啟用送贈支出</span>
+          </label>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+          />
+          <select
+            value={formData.category}
+            onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+          >
+            <option value="飲食">🍽️ 飲食</option>
+            <option value="交通">🚗 交通</option>
+            <option value="購物">🛍️ 購物</option>
+          </select>
+          <select
+            value={formData.type}
+            onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+          >
+            <option value="自費">💳 自費</option>
+            <option value="公家">{sharedExpenseEmoji} 公家</option>
+            {enableGiftExpense && <option value="送贈">🎁 送贈</option>}
+          </select>
+          {formData.type === '公家' && (
+            <select
+              value={sharedExpenseEmoji}
+              onChange={(e) => setSharedExpenseEmoji(e.target.value)}
+              style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+            >
+              <option value="💑">💑 情侶</option>
+              <option value="👨‍👩‍👧‍👦">👨‍👩‍👧‍👦 家庭</option>
+              <option value="🏠">🏠 家用</option>
+              <option value="👥">👥 共享</option>
+              <option value="🤝">🤝 合夥</option>
+              <option value="🏢">🏢 公司</option>
+              <option value="💼">💼 商務</option>
+            </select>
+          )}
+          {formData.type !== '公家' && (
+            <select
+              value={formData.person}
+              onChange={(e) => setFormData({ ...formData, person: e.target.value })}
+              style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+            >
+              {persons.map(person => (
+                <option key={person.id} value={person.name}>{person.emoji} {person.name}</option>
+              ))}
+            </select>
+          )}
+          <input
+            type="number"
+            placeholder="金額"
+            value={formData.amount || ''}
+            onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) })}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+          />
+          <select
+            value={formData.currency}
+            onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+          >
+            <option value="JPY">JPY (¥)</option>
+            <option value="HKD">HKD ($)</option>
+            <option value="USD">USD ($)</option>
+            <option value="EUR">EUR (€)</option>
+            <option value="GBP">GBP (£)</option>
+            <option value="TWD">TWD (NT$)</option>
+            <option value="CNY">CNY (¥)</option>
+            <option value="KRW">KRW (₩)</option>
+            <option value="SGD">SGD (S$)</option>
+            <option value="MYR">MYR (RM)</option>
+            <option value="THB">THB (฿)</option>
+          </select>
+          {formData.type === '送贈' && enableGiftExpense && (
+            <select
+              value={formData.recipient || ''}
+              onChange={(e) => setFormData({ ...formData, recipient: e.target.value })}
+              style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
+            >
+              <option value="">選擇收禮者</option>
+              {persons.map(person => (
+                <option key={person.id} value={person.name}>{person.emoji} {person.name}</option>
+              ))}
+            </select>
+          )}
+          <input
+            type="text"
+            placeholder="描述"
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ccc', gridColumn: 'span 2' }}
+          />
+        </div>
+        <button
+          onClick={handleSubmit}
+          style={{
+            marginTop: '16px',
+            background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+            color: 'white',
+            border: 'none',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: '600',
+            width: '100%',
+          }}
+        >
+          ➕ 新增支出
+        </button>
+        <div style={{ marginTop: '12px', fontSize: '14px', color: '#7F8C8D' }}>
+          匯率: 1 JPY = {exchangeRate.toFixed(4)} HKD
+        </div>
+      </div>
+
+      {/* Expense List - Excel Style */}
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        overflow: 'hidden',
+      }}>
+        <h3 style={{ margin: 0, padding: '20px 24px', color: '#2C3E50', borderBottom: '2px solid #f0f0f0' }}>支出記錄</h3>
+        
+        {(!expenses || expenses.length === 0) ? (
+          <p style={{ textAlign: 'center', color: '#7F8C8D', padding: '32px 0' }}>暫無記錄</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            {Object.entries(groupedExpenses).map(([date, dayExpenses]) => (
+              <div key={date} style={{ marginBottom: '24px' }}>
+                <div style={{
+                  background: 'linear-gradient(135deg, #A8DADC 0%, #457B9D 100%)',
+                  color: 'white',
+                  padding: '12px 24px',
+                  fontWeight: '600',
+                  fontSize: '16px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <span>📅 {date}</span>
+                  <span>小計: HK$ {calculateDayTotal(dayExpenses).toFixed(0)}</span>
+                </div>
+
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(80px, 1fr) minmax(80px, 1fr) minmax(80px, 1fr) minmax(80px, 1fr) minmax(120px, 1.5fr) minmax(100px, 1fr) minmax(100px, 1fr) 50px',
+                  gap: '1px',
+                  background: '#e0e0e0',
+                  borderBottom: '2px solid #D4AF37',
+                }}>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50' }}>類別</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50' }}>類型</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50' }}>付款人</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50' }}>收禮人</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50' }}>描述</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50', textAlign: 'right' }}>原幣</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#D4AF37', textAlign: 'right' }}>HKD</div>
+                  <div style={{ background: '#f8f9fa', padding: '12px', fontWeight: '600', fontSize: '14px', color: '#2C3E50', textAlign: 'center' }}></div>
+                </div>
+
+                {dayExpenses.map((exp, idx) => (
+                  <div
+                    key={exp.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(80px, 1fr) minmax(80px, 1fr) minmax(80px, 1fr) minmax(80px, 1fr) minmax(120px, 1.5fr) minmax(100px, 1fr) minmax(100px, 1fr) 50px',
+                      gap: '1px',
+                      background: '#e0e0e0',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f0f0f0'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#e0e0e0'}
+                  >
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#2C3E50' }}>
+                      {exp.category === '飲食' ? '🍽️' : exp.category === '交通' ? '🚗' : '🛍️'} {exp.category}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#2C3E50' }}>
+                      {exp.type === '自費' ? '💳' : exp.type === '公家' ? '💑' : '🎁'} {exp.type}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#2C3E50' }}>
+                      {persons.find(p => p.name === exp.person)?.emoji || '👤'} {exp.person}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#7F8C8D' }}>
+                      {exp.recipient ? ((persons.find(p => p.name === exp.recipient)?.emoji || '👤') + ' ' + exp.recipient) : '-'}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#2C3E50', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {exp.description || '-'}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#2C3E50', textAlign: 'right', fontWeight: '500' }}>
+                      {exp.currency} {exp.amount.toLocaleString()}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', fontSize: '13px', color: '#D4AF37', textAlign: 'right', fontWeight: '600' }}>
+                      HK$ {convertToHKD(exp.amount, exp.currency).toFixed(0)}
+                    </div>
+                    <div style={{ background: 'white', padding: '12px', textAlign: 'center' }}>
+                      <button
+                        onClick={() => onDeleteExpense(exp.id)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#ff6b6b',
+                          cursor: 'pointer',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '100%',
+                        }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
