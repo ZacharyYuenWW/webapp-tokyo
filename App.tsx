@@ -3337,7 +3337,7 @@ const [expenses, setExpenses] = useState<ExpenseRecord[]>(loadExpenses);
             margin: '24px auto',
             padding: '0 24px 48px',
           }}>
-            <h2 style={{ color: '#2C3E50', fontFamily: '"Noto Serif TC", serif', marginBottom: '24px' }}>
+             <h2 style={{ color: '#2C3E50', fontFamily: '"Noto Serif TC", serif', marginBottom: '24px' }}>
               ⚙️ 旅程設定
             </h2>
 
