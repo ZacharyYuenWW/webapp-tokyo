@@ -889,8 +889,9 @@ const [expenses, setExpenses] = useState<ExpenseRecord[]>(loadExpenses);
     };
   }, [schedule, checklist, expenses, persons, checklistUsers, flights, tripSettings, exchangeRate, scheduleHistory]);
 
-  // 監聯 Firebase 數據變化（即時同步）
-  useEffect(() => {
+  // Firebase 自動同步已禁用 - 改為手動同步模式
+  // 這樣可以避免在不同設備打開時自動重置數據
+  /* useEffect(() => {
     // 如果 Firebase 未初始化，跳過
     if (!database) {
       console.warn('Firebase not initialized, using local storage only');
@@ -1002,7 +1003,110 @@ const [expenses, setExpenses] = useState<ExpenseRecord[]>(loadExpenses);
       console.error('Firebase setup error:', error);
       setFirebaseConnected(false);
     }
-  }, [currentTripId]);
+  }, [currentTripId]); */
+
+  // 手動上傳到 Firebase
+  const manualUploadToFirebase = async () => {
+    if (!database) {
+      alert('Firebase 未初始化，無法上傳');
+      return false;
+    }
+
+    try {
+      // 先保存當前旅程到本地
+      saveCurrentTrip();
+      
+      // 獲取所有旅程
+      const localTripsStr = localStorage.getItem(TRIPS_LIST_KEY);
+      const localTrips = localTripsStr ? JSON.parse(localTripsStr) : [];
+
+      if (localTrips.length === 0) {
+        alert('沒有數據可上傳');
+        return false;
+      }
+
+      // 上傳到 Firebase
+      for (const trip of localTrips) {
+        const tripRef = ref(database, `trips/${trip.id}`);
+        await set(tripRef, {
+          ...trip,
+          lastModified: new Date().toISOString(),
+        });
+      }
+
+      setFirebaseConnected(true);
+      alert('✅ 成功上傳到雲端！');
+      return true;
+    } catch (error) {
+      console.error('上傳失敗:', error);
+      alert('❌ 上傳失敗: ' + (error as Error).message);
+      return false;
+    }
+  };
+
+  // 手動從 Firebase 下載
+  const manualDownloadFromFirebase = async () => {
+    if (!database) {
+      alert('Firebase 未初始化，無法下載');
+      return false;
+    }
+
+    try {
+      const tripsRef = ref(database, 'trips');
+      
+      // 使用 onValue 的一次性版本來讀取數據
+      return new Promise<boolean>((resolve) => {
+        onValue(tripsRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const firebaseTrips = snapshot.val();
+            const tripsArray = (Object.values(firebaseTrips) as Trip[]).map(trip => ({
+              ...trip,
+              data: {
+                schedule: trip.data?.schedule || [],
+                checklist: trip.data?.checklist || [],
+                expenses: trip.data?.expenses || [],
+                persons: trip.data?.persons || initialPersons,
+                checklistUsers: trip.data?.checklistUsers || [],
+                flights: trip.data?.flights || [],
+                tripSettings: trip.data?.tripSettings || initialTripSettings,
+                exchangeRate: trip.data?.exchangeRate || 0.052,
+                scheduleHistory: trip.data?.scheduleHistory || [],
+              },
+            }));
+
+            // 更新本地狀態和 localStorage
+            setAllTrips(tripsArray);
+            localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(tripsArray));
+
+            // 同步當前旅程
+            const currentTrip = tripsArray.find(t => t.id === currentTripId);
+            if (currentTrip && currentTrip.data) {
+              setSchedule(currentTrip.data.schedule || []);
+              setChecklist(currentTrip.data.checklist || []);
+              setExpenses(Array.isArray(currentTrip.data.expenses) ? currentTrip.data.expenses : []);
+              setPersons(currentTrip.data.persons || initialPersons);
+              setChecklistUsers(currentTrip.data.checklistUsers || []);
+              setFlights(currentTrip.data.flights || []);
+              setTripSettings(currentTrip.data.tripSettings || initialTripSettings);
+              setExchangeRate(currentTrip.data.exchangeRate || 0.052);
+              setScheduleHistory(currentTrip.data.scheduleHistory || []);
+            }
+
+            setFirebaseConnected(true);
+            alert('✅ 成功從雲端下載！');
+            resolve(true);
+          } else {
+            alert('雲端沒有數據');
+            resolve(false);
+          }
+        }, { onlyOnce: true });
+      });
+    } catch (error) {
+      console.error('下載失敗:', error);
+      alert('❌ 下載失敗: ' + (error as Error).message);
+      return false;
+    }
+  };
 
   // 創建新旅程
   const createNewTrip = (name: string) => {
@@ -3340,6 +3444,67 @@ const [expenses, setExpenses] = useState<ExpenseRecord[]>(loadExpenses);
                     <option value="🏢">🏢 公司</option>
                     <option value="💼">💼 商務</option>
                   </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: '#2C3E50', fontWeight: '600' }}>
+                    ☁️ 雲端同步（手動控制）
+                  </label>
+                  <div style={{
+                    padding: '16px',
+                    background: '#f8f9fa',
+                    borderRadius: '8px',
+                    marginBottom: '12px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                      <span style={{ fontSize: '12px', color: '#666' }}>連接狀態:</span>
+                      <span style={{
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: firebaseConnected ? '#4CAF50' : '#ff6b6b',
+                      }}>
+                        {firebaseConnected ? '✅ 已連接' : '❌ 未連接'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <button
+                        onClick={manualUploadToFirebase}
+                        style={{
+                          padding: '12px 16px',
+                          background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                        }}
+                      >
+                        ⬆️ 上傳到雲端
+                      </button>
+                      <button
+                        onClick={manualDownloadFromFirebase}
+                        style={{
+                          padding: '12px 16px',
+                          background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                        }}
+                      >
+                        ⬇️ 從雲端下載
+                      </button>
+                    </div>
+                    <p style={{ margin: '12px 0 0 0', fontSize: '12px', color: '#666', lineHeight: '1.5' }}>
+                      💡 <strong>使用說明：</strong><br/>
+                      • <strong>上傳到雲端</strong>：將本設備的數據保存到雲端<br/>
+                      • <strong>從雲端下載</strong>：用雲端數據覆蓋本設備數據<br/>
+                      • 數據只在您手動點擊時同步，不會自動覆蓋
+                    </p>
+                  </div>
                 </div>
 
                 <div style={{
