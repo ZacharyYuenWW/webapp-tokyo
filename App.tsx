@@ -869,10 +869,10 @@ export default function App() {
       }
     }
     
-    // 3秒後重置標誌，允許接收其他用戶的更新
+    // 10秒後重置標誌，允許接收其他用戶的更新
     setTimeout(() => {
       isLocalChangeRef.current = false;
-    }, 3000);
+    }, 10000);
   };
 
   // 自動保存當前旅程（防抖：500ms 內的多次更改只保存一次）
@@ -909,7 +909,7 @@ export default function App() {
         
         // 如果是本地更改剛保存的，跳過這次更新（防止覆蓋）
         const timeSinceLastSave = Date.now() - lastSaveTimeRef.current;
-        if (isLocalChangeRef.current && timeSinceLastSave < 3000) {
+        if (isLocalChangeRef.current && timeSinceLastSave < 10000) { // 延長到 10 秒保護期
           console.log('跳過 Firebase 更新（本地更改中）');
           return;
         }
@@ -931,28 +931,68 @@ export default function App() {
             },
           }));
           
-          // 更新本地狀態
-          setAllTrips(tripsArray);
-          localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(tripsArray));
+          // 獲取本地當前行程資料進行時間戳比較
+          const localTripsStr = localStorage.getItem(TRIPS_LIST_KEY);
+          const localTrips = localTripsStr ? JSON.parse(localTripsStr) : [];
+          const localCurrentTrip = localTrips.find((t: Trip) => t.id === currentTripId);
+          const firebaseCurrentTrip = tripsArray.find(t => t.id === currentTripId);
           
-          // 如果當前旅程在 Firebase 中有更新，同步到本地
-          const currentTrip = tripsArray.find(t => t.id === currentTripId);
-          if (currentTrip && currentTrip.data) {
-            console.log('從 Firebase 同步數據');
-            setSchedule(currentTrip.data.schedule || []);
-            setChecklist(currentTrip.data.checklist || []);
-            // setExpenses removed
-            setPersons(currentTrip.data.persons || initialPersons);
-            setChecklistUsers(currentTrip.data.checklistUsers || []);
-            setFlights(currentTrip.data.flights || []);
-            setTripSettings(currentTrip.data.tripSettings || initialTripSettings);
-            setExchangeRate(currentTrip.data.exchangeRate || 0.052);
-            setScheduleHistory(currentTrip.data.scheduleHistory || []);
+          // 只有當 Firebase 的資料更新時間比本地新，或本地沒有資料時，才覆蓋
+          let shouldSync = false;
+          if (!localCurrentTrip) {
+            // 本地沒有當前行程，接受 Firebase 資料
+            shouldSync = true;
+            console.log('本地無資料，從 Firebase 同步');
+          } else if (firebaseCurrentTrip) {
+            // 比較時間戳，只有 Firebase 更新時間比較新才同步
+            const localTime = new Date(localCurrentTrip.lastModified).getTime();
+            const firebaseTime = new Date(firebaseCurrentTrip.lastModified).getTime();
+            
+            if (firebaseTime > localTime) {
+              shouldSync = true;
+              console.log('Firebase 資料較新，同步中', {
+                local: new Date(localTime).toLocaleString(),
+                firebase: new Date(firebaseTime).toLocaleString()
+              });
+            } else {
+              console.log('本地資料較新或相同，保持本地資料', {
+                local: new Date(localTime).toLocaleString(),
+                firebase: new Date(firebaseTime).toLocaleString()
+              });
+            }
+          }
+          
+          if (shouldSync) {
+            // 更新本地狀態
+            setAllTrips(tripsArray);
+            localStorage.setItem(TRIPS_LIST_KEY, JSON.stringify(tripsArray));
+            
+            // 如果當前旅程在 Firebase 中有更新，同步到本地
+            const currentTrip = tripsArray.find(t => t.id === currentTripId);
+            if (currentTrip && currentTrip.data) {
+              setSchedule(currentTrip.data.schedule || []);
+              setChecklist(currentTrip.data.checklist || []);
+              // setExpenses removed
+              setPersons(currentTrip.data.persons || initialPersons);
+              setChecklistUsers(currentTrip.data.checklistUsers || []);
+              setFlights(currentTrip.data.flights || []);
+              setTripSettings(currentTrip.data.tripSettings || initialTripSettings);
+              setExchangeRate(currentTrip.data.exchangeRate || 0.052);
+              setScheduleHistory(currentTrip.data.scheduleHistory || []);
+            }
           }
         } else {
-          // Firebase 沒有數據，上傳本地數據
-          console.log('Firebase 沒有數據，上傳本地數據');
-          saveCurrentTrip();
+          // Firebase 沒有數據，但不要立即覆蓋本地資料
+          // 只有在本地也沒有資料時才上傳
+          const localTripsStr = localStorage.getItem(TRIPS_LIST_KEY);
+          const localTrips = localTripsStr ? JSON.parse(localTripsStr) : [];
+          if (localTrips.length === 0) {
+            console.log('Firebase 和本地都沒有數據，上傳初始數據');
+            saveCurrentTrip();
+          } else {
+            console.log('Firebase 沒有數據，但本地有資料，上傳本地數據到 Firebase');
+            saveCurrentTrip();
+          }
         }
       }, (error) => {
         console.error('Firebase 讀取失敗:', error);
